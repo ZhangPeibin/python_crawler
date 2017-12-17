@@ -55,4 +55,4 @@ def begin(url,savePath):
     preProcess(host,r.content,savePath)
 
 if __name__ == '__main__':
-    begin('http://104.193.92.25:88/171126/lj/lj.m3u8','./我爱你 .ts')
+    begin('http://192.225.235.18:88/151222/zfxs/zfxs.m3u8','./ee_video/女友.ts')
