@@ -12,7 +12,7 @@ import sys
 
 sys.setrecursionlimit(10000000)
 
-db_name = "ymp.db"
+db_name = "db_ymp.db"
 table_name = "mp4"
 conn = sqlite3.connect(db_name)
 conn.execute('''CREATE TABLE IF NOT EXISTS %s (title TEXT, url TEXT,watch TEXT,good Text)''' % table_name)     
@@ -23,37 +23,79 @@ def save_to_db(title,url,watch="-",good="-"):
    conn.commit()
 
 urls=[]
+models = []
+
 UNUSED_PATH = [None,"/","#","javascript:void(0)"]
 HTTP_SESSION = requests.session()
 HTTP_SESSION.headers.update({"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, like Gecko) Mobile/14E304 MicroMessenger/6.5.12 NetType/WIFI Language/zh_CN"})
 
 page = 0
-url = 'http://www.yemalu.pw/videos?page=%d'
+root = 'http://www.yemalu.pw'
+url = root+'/videos?page=%d'
+config_url = root+"/media/player/config_v.php?vkey=%s-1-1"
 
-def http_get(url, params={}):
+class UrlModel(object):
+        def __init__(self,title,url,watch,good):
+                self.title = title
+                self.url = url
+                self.watch = watch
+                self.good = good
+
+
+def http_get(url, params={},retries=0):
         try:
             r = HTTP_SESSION.get(url, params=params)
             if r.status_code == 200:
                 return r
             else:
-                print "%s request failed %d " % (url,r.status_code)
-                return None
+                if retries > 0:
+                    http_get(url,params,retries-1)
+                else:
+                    print "%s request failed %d " % (url,r.status_code)
+                    return None
         except Exception as e:
-            logging.exception(e)
+            if retries > 0:
+                    http_get(url,params,retries-1)
+            else:
+                logging.exception(e)
             return None
-
 
 def dispatch_web_process(ul):
     soup = BeautifulSoup(str(ul))
     a = soup.find_all('a',limit=1)
-    if a:
-        print a[0]['href']
+    if not a:
+        return   
+    url = a[0]['href']
+    number = re.search("\d+",url,re.M|re.I).group()
+    url = config_url % number
+    r = http_get(url,retries=3)
+    if r == None:
+        return
+    r.encoding = 'utf-8'
+    url = r.text
+    title=""
+    titletag = soup.find_all("span",limit=1)
+    if titletag :
+        title = titletag[0].string
+    else:
+        title = url.rsplit("/",-1)
 
-def dispatch_web_db(title,url,watch,good):
-    save_to_db(title,url,watch,good)
+    watchdiv = soup.find_all("div","video-views",limit=1)
+    watch = ""
+    if watchdiv:
+        watch = watchdiv[0].string.lstrip().rstrip()
+    good = soup.find_all(text=re.compile("\d+\%",re.M|re.I))
+    if not good:
+        good = "-"
+    else:
+        good = good[0]
+
+    urlModel = UrlModel(title,url,watch,good)
+    models.append(urlModel)
 
 def dispatch_url_cache(url):
     urls.append(url)
+
 
 def next():
     global page
@@ -100,7 +142,7 @@ def get_next_url_and_navigation(soup):
 
 
 def get_all_url(url,retries = 3):#递归爬取所有url    
-    
+    #初始化
     print 'process... %s' % url 
     
     r = http_get(url)
@@ -136,6 +178,15 @@ def get_all_url(url,retries = 3):#递归爬取所有url
 
     for t in th:
         t.join()
+
+    global models
+
+    for model in models:
+            save_to_db(model.title,model.url,model.watch,model.good)
+
+    models = []
+
+    time.sleep(3)
 
     get_next_url_and_navigation(soup)
 
