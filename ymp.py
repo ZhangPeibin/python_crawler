@@ -42,16 +42,14 @@ url = root+'/videos?c=%d&page=%d'
 config_url = root+"/media/player/config_v.php?vkey=%s-1-1"
 
 limit=20
-page=1
+page=3
 offset=page * limit 
 
 proxies = {
-        "http":"http://122.114.31.177:808",
-        "htpps":"http://112.86.73.52:53281",
-	"http":"http://180.120.211.120:8118",
-        "htpps":"http://113.221.45.133:8888",
-	"http":"http://219.138.58.99:3128",
-        "htpps":"http://124.89.33.59:53281",
+        "http":"http://121.232.147.162:9000",
+        "http":"http://118.193.107.37:80",
+        "http":"http://223.223.187.195:80",
+        "http":"http://121.232.145.246:9000",
         }
 
 class UrlModel(object):
@@ -224,13 +222,14 @@ def get_all_url(url,retries = 3):#递归爬取所有url
 
     get_next_url_and_navigation(soup)
 
-def down(row):
+def down(row,retries=3):
     title = row[0]
     path = row[1]
     print path
     if not os.path.exists('./mp4_yml/%s.mp4'%title):        
         try:
-            res = HTTP_SESSION.get(path,proxies=proxies,stream=True)
+            res = HTTP_SESSION.get(path,stream=True)
+            #res = HTTP_SESSION.get(path,proxies=proxies,stream=True)
         except Exception as e:
             time.sleep(2)
             logging.exception(e)
@@ -244,19 +243,36 @@ def down(row):
                         if chunk:
                             f.write(chunk)
                             f.flush()
+            else:
+                if retries > 0:
+                    if str(res.status_code).startswith("5"):
+                        down(row,retries-1)
+                else:
+                    print "response code : %d" % res.status_code
         finally:
             print "finish.."
+
+
+def download_1():
+    cur = conn.execute("SELECT title,url from %s  limit %d OFFSET %d" % (table_name,limit,offset))
+    for row in cur:
+        down(row)    
+        time.sleep(1)
+
+    print "Sub-process(es) down"
+   
 
 
 def download():
     cur = conn.execute("SELECT title,url from %s  limit %d OFFSET %d" % (table_name,limit,offset))
     th=[]
     for row in cur:
-        print "fuck"
         t = threading.Thread(target=down,args=(row,))
         th.append(t)
         t.start()
-    
+        if threading.activeCount() > 3:
+                time.sleep(1)
+
     for t in th:
         t.join()
 
@@ -266,5 +282,5 @@ def download():
 
 #get_all_url(next())
 
-download()
+download_1()
 
