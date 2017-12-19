@@ -3,6 +3,8 @@
 import re
 from bs4 import BeautifulSoup
 import requests
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 import os
 import time
 import threading
@@ -13,7 +15,7 @@ import sys
 sys.setrecursionlimit(10000000)
 
 db_name = "db_ymp.db"
-table_name = "mp4"
+table_name = "cn_mp4"
 conn = sqlite3.connect(db_name)
 conn.execute('''CREATE TABLE IF NOT EXISTS %s (title TEXT, url TEXT,watch TEXT,good Text)''' % table_name)     
   
@@ -28,11 +30,29 @@ models = []
 UNUSED_PATH = [None,"/","#","javascript:void(0)"]
 HTTP_SESSION = requests.session()
 HTTP_SESSION.headers.update({"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, like Gecko) Mobile/14E304 MicroMessenger/6.5.12 NetType/WIFI Language/zh_CN"})
+retry = Retry(connect=3, backoff_factor=0.5)
+adapter = HTTPAdapter(max_retries=retry)
+HTTP_SESSION.mount('http://', adapter)
+HTTP_SESSION.mount('https://', adapter)
 
 page = 0
 root = 'http://www.yemalu.pw'
-url = root+'/videos?page=%d'
+videotype=1
+url = root+'/videos?c=%d&page=%d'
 config_url = root+"/media/player/config_v.php?vkey=%s-1-1"
+
+limit=20
+page=1
+offset=page * limit 
+
+proxies = {
+        "http":"http://122.114.31.177:808",
+        "htpps":"http://112.86.73.52:53281",
+	"http":"http://180.120.211.120:8118",
+        "htpps":"http://113.221.45.133:8888",
+	"http":"http://219.138.58.99:3128",
+        "htpps":"http://124.89.33.59:53281",
+        }
 
 class UrlModel(object):
         def __init__(self,title,url,watch,good):
@@ -62,12 +82,31 @@ def http_get(url, params={},retries=0):
 
 def dispatch_web_process(ul):
     soup = BeautifulSoup(str(ul))
+
+    good = soup.find_all(text=re.compile("\d+\%",re.M|re.I))
+    if not good:
+        good = "-"
+    else:
+        good = good[0]
+    
+    goodNum = re.search("\d+",good,re.M|re.I)
+    if not goodNum:
+        return
+
+    goodNum = int(goodNum.group())
+
+    if goodNum < 66:
+        return
+
     a = soup.find_all('a',limit=1)
     if not a:
         return   
     url = a[0]['href']
     number = re.search("\d+",url,re.M|re.I).group()
     url = config_url % number
+    if url in urls:
+        return
+    urls.append(url)
     r = http_get(url,retries=3)
     if r == None:
         return
@@ -84,11 +123,6 @@ def dispatch_web_process(ul):
     watch = ""
     if watchdiv:
         watch = watchdiv[0].string.lstrip().rstrip()
-    good = soup.find_all(text=re.compile("\d+\%",re.M|re.I))
-    if not good:
-        good = "-"
-    else:
-        good = good[0]
 
     urlModel = UrlModel(title,url,watch,good)
     models.append(urlModel)
@@ -100,7 +134,7 @@ def dispatch_url_cache(url):
 def next():
     global page
     page = page +1
-    return url % page
+    return url % (videotype,page)
 
 def get_next_url_and_navigation(soup):
     nexts = soup.find_all("ul","pagination")
@@ -190,5 +224,47 @@ def get_all_url(url,retries = 3):#递归爬取所有url
 
     get_next_url_and_navigation(soup)
 
-get_all_url(next())
+def down(row):
+    title = row[0]
+    path = row[1]
+    print path
+    if not os.path.exists('./mp4_yml/%s.mp4'%title):        
+        try:
+            res = HTTP_SESSION.get(path,proxies=proxies,stream=True)
+        except Exception as e:
+            time.sleep(2)
+            logging.exception(e)
+        else:
+            #if res.status_code == 200:
+             #   with open('./mp4_yml/%s.mp4' % title,'wb') as f:
+             #       f.write(res.text)
+            if res.status_code == 200:
+                with open('./mp4_yml/%s.mp4' % title,'wb') as f:
+                    for chunk in res.iter_content(chunk_size=1024):
+                        if chunk:
+                            f.write(chunk)
+                            f.flush()
+        finally:
+            print "finish.."
+
+
+def download():
+    cur = conn.execute("SELECT title,url from %s  limit %d OFFSET %d" % (table_name,limit,offset))
+    th=[]
+    for row in cur:
+        print "fuck"
+        t = threading.Thread(target=down,args=(row,))
+        th.append(t)
+        t.start()
+    
+    for t in th:
+        t.join()
+
+    print "Sub-process(es) down"
+   
+
+
+#get_all_url(next())
+
+download()
 
