@@ -10,11 +10,21 @@ import logging
 import httplib
 import urlparse
 
+
+headers = {
+    "User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, like Gecko) Mobile/14E304  MicroMessenger/6.5.12 NetType/WIFI Language/zh_CN",
+    "Connection": "keep-alive",
+    "Accept-Encoding": "gzip, deflate",
+    "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+}
+
+codes = [302,200]
+
 class YmlHttp(object):
 
     def __init__(self):
         self.HTTP_SESSION = requests.session()
-        self.HTTP_SESSION.headers.update({"User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_1 like Mac OS X) AppleWebKit/603.1.30 (KHTML, like Gecko) Mobile/14E304  MicroMessenger/6.5.12 NetType/WIFI Language/zh_CN"})
+        self.HTTP_SESSION.headers.update(headers)
         self.retry = Retry(connect=3, backoff_factor=0.5)
         self.adapter = HTTPAdapter(max_retries=self.retry)
         self.HTTP_SESSION.mount('http://', self.adapter)
@@ -146,23 +156,40 @@ class YmlHttp(object):
 
 
 def checkUrl(url):
+    print "check url %s" % url
     if len(url) == 0 :
         return False
+
     host,path = urlparse.urlparse(url)[1:3]
+    print host
+    print path
     conn = None
     try:
         conn = httplib.HTTPConnection(host)
         conn.request("HEAD",path)
-        if conn.getresponse().status == 200:
+        code = conn.getresponse().status
+        if  code in codes:
             return True
         else:
+            print "check url failed with %s" % (url)
             return False
-    except:
+    except Exception as e:
+        logging.exception(e)
+        print "check url except % s" % url
         return False
     finally:
         if conn :
             conn.close()
 
 if __name__ == '__main__':
+    print checkUrl("http://adultvideo.science/media/videos/iphone/170.mp4")
+
     ht = YmlHttp()
-    ht.http_download_process("test","http://101.96.8.143/adultvideo.science/media/videos/iphone/107.mp4","|http://101.96.8.142/adultvideo.science/media/videos/iphone/808.mp4")
+    ht.http_download_process("test","http://adultvideo.science/media/videos/iphone/170.mp4","|http://101.96.8.142/adultvideo.science/media/videos/iphone/808.mp4")
+
+
+
+
+
+
+

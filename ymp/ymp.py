@@ -7,14 +7,14 @@ import threading
 from multiprocessing import Pool
 import logging
 import sys
-from tqdm import tqdm
-
+import os
 import sql
 import http
 
 sys.setrecursionlimit(10000000)
 
 sql = sql.SqlHelper()
+httpClient = http.YmlHttp()
 
 urls=[]
 models = []
@@ -64,17 +64,18 @@ def process_web(ul):
     if curl in urls:
         return
     urls.append(curl)
-    r =http.http_get(curl,retries=3)
+    r =httpClient.http_get(curl,retries=3)
     if r == None:
         return
     r.encoding = 'utf-8'
     url = r.text
     if not http.checkUrl(url):
+        print "check faile"
         return
     else:
         pass
         #print "use url %s " % url
-
+    print 'after check'
     title=""
     titletag = soup.find_all("span",limit=1)
     if titletag :
@@ -88,47 +89,10 @@ def process_web(ul):
         watch = watchdiv[0].string.lstrip().rstrip()
     urlModel = UrlModel(title,url,curl,watch,good)
     models.append(urlModel)
-
+    print "process web ok"
 
 def formatUrl(page):
     return url % (videotype,page)
-
-def get_next_url_and_navigation(soup):
-    nexts = soup.find_all("ul","pagination")
-
-    if not nexts:
-        get_all_url(next())
-        return
-
-    ul = nexts[0]
-    
-    if ul == None:
-        return
-
-    li = soup.find_all("a","prevnext")
-    
-    if not li:
-        print "process finish"
-        return
-
-    nexturl = li[0]['href']
-
-    match = re.search("page=\d+",nexturl,re.M|re.I)
-    global page
-    if match :
-        n = re.search("\d+",match.group(),re.M|re.I)
-        p = int(n.group())
-        if p == page+1:
-            get_all_url(next())
-        elif p==page:
-            print 'process finish'
-        else:
-            page = p -1
-            get_all_url(next())
-            
-    else:
-        get_all_url(next())
-
 
 def get_all_url(start,end,retries = 3):#递归爬取所有url 
     if start == end-1:
@@ -136,9 +100,9 @@ def get_all_url(start,end,retries = 3):#递归爬取所有url
         return
 
     currentUrl = formatUrl(start)
-    print 'process... %s' % currentUrl 
+    print '[%s] process... %s' % (os.getpid(),currentUrl)
 
-    r = http.http_get(currentUrl)
+    r = httpClient.http_get(currentUrl)
     
     if r == None :
         if retries > 0:
@@ -161,13 +125,9 @@ def get_all_url(start,end,retries = 3):#递归爬取所有url
         
     th=[]
     for k in allA:
-        t = threading.Thread(target=dispatch_web_process,args=(k,))
-        t.setDaemon(True)
+        t = threading.Thread(target=process_web,args=(k,))
         t.start()
         th.append(t)
-        if threading.activeCount() > 5:
-            time.sleep(2)
-    
 
     for t in th:
         t.join()
@@ -178,22 +138,19 @@ def get_all_url(start,end,retries = 3):#递归爬取所有url
             sql.save_to_db(model.title,model.url,"--",model.watch,model.good)
 
     models = []
-
-    time.sleep(3)
-    
+    print "[%s] process finish %s" % (os.getpid(),currentUrl)
     get_all_url(start+1,end)
 
 
-
-
 def dispatch_tasks(total):
+    print 'start dispatch task ...'
     if total <= 0:
         return
     perCount = total /18/ processCount
 
     pool = Pool()
     for i in range(processCount):
-        start = i * perCount+2
+        start = i * perCount+3
         if i == processCount-1:
             end = total
         else:
@@ -209,7 +166,7 @@ def dispatch_tasks(total):
 
 def begin(rooturl,retries=3):
     print 'process first page ... %s' % rooturl 
-    r = http.http_get(rooturl)    
+    r = httpClient.http_get(rooturl)    
     if r == None :
         if retries > 0:
             begin(rooturl,retries-1)
