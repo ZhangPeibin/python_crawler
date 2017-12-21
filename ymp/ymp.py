@@ -5,19 +5,17 @@ from bs4 import BeautifulSoup
 import time
 import threading
 from multiprocessing import Pool
+import multiprocessing
 import logging
 import sys
 import os
 import sql
+import Queue
 import http
 
 sys.setrecursionlimit(10000000)
 
-sql = sql.SqlHelper()
-httpClient = http.YmlHttp()
-
 urls=[]
-models = []
 
 UNUSED_PATH = [None,"/","#","javascript:void(0)"]
 
@@ -37,7 +35,7 @@ class UrlModel(object):
                 self.good = good
 
 
-def process_web(ul):
+def process_web(ul,httpClient,queue):
     soup = BeautifulSoup(str(ul))
 
     good = soup.find_all(text=re.compile("\d+\%",re.M|re.I))
@@ -66,16 +64,15 @@ def process_web(ul):
     urls.append(curl)
     r =httpClient.http_get(curl,retries=3)
     if r == None:
+        print "check faile" 
         return
+
     r.encoding = 'utf-8'
     url = r.text
     if not http.checkUrl(url):
-        print "check faile"
         return
     else:
         pass
-        #print "use url %s " % url
-    print 'after check'
     title=""
     titletag = soup.find_all("span",limit=1)
     if titletag :
@@ -88,29 +85,34 @@ def process_web(ul):
     if watchdiv:
         watch = watchdiv[0].string.lstrip().rstrip()
     urlModel = UrlModel(title,url,curl,watch,good)
-    models.append(urlModel)
-    print "process web ok"
+    queue.put(urlModel)
 
 def formatUrl(page):
     return url % (videotype,page)
 
-def get_all_url(start,end,retries = 3):#递归爬取所有url 
+def get_all_url(start,end,queue,hc=None,retries = 3):#递归爬取所有url 
     if start == end-1:
         print "finish job between %d to %d"%(start,end)
         return
 
+    if not hc:
+        hc = http.YmlHttp()
+
+    if not queue:
+        queue = Queue.Queue()
+
     currentUrl = formatUrl(start)
     print '[%s] process... %s' % (os.getpid(),currentUrl)
 
-    r = httpClient.http_get(currentUrl)
+    r = hc.http_get(currentUrl)
     
     if r == None :
         if retries > 0:
-            get_all_url(start,end,retries-1)
+            get_all_url(start,end,queue,hc,retries-1)
         else:
             print "process  %s with response none" % url
             print '...'
-            get_all_url(start+1,end)
+            get_all_url(start+1,end,queue,hc)
         return 
 
     r.encoding = 'utf-8'
@@ -120,56 +122,66 @@ def get_all_url(start,end,retries = 3):#递归爬取所有url
     
     if  (not allA):
             print "get a empty <a> tag from %s " % uri
-            get_all_url(start+1,end)
+            get_all_url(start+1,end,hc,queue)
             return
         
     th=[]
+
     for k in allA:
-        t = threading.Thread(target=process_web,args=(k,))
+        t = threading.Thread(target=process_web,args=(k,hc,queue))
         t.start()
         th.append(t)
-
+    
     for t in th:
         t.join()
 
-    global models
-
-    for model in models:
-            sql.save_to_db(model.title,model.url,"--",model.watch,model.good)
-
-    models = []
-    print "[%s] process finish %s" % (os.getpid(),currentUrl)
-    get_all_url(start+1,end)
+    get_all_url(start+1,end,queue,hc)
 
 
 def dispatch_tasks(total):
-    print 'start dispatch task ...'
     if total <= 0:
         return
-    perCount = total /18/ processCount
-
+    totalPage = total/18
+    perCount = totalPage/ processCount
+    
     pool = Pool()
+    queues = []
+    manager = multiprocessing.Manager()
     for i in range(processCount):
         start = i * perCount+3
         if i == processCount-1:
-            end = total
+            end = totalPage+1
         else:
             end = (i+1) * perCount+2
-        pool.apply_async(get_all_url,args=(start,end))
+        q = manager.Queue()
+        queues.append(q)
+        print "%s - %s " %(start,end)
+        #pool.apply_async(get_all_url,args=(start,end,q))
 
     pool.close()
     pool.join()
+    
+    db = sql.SqlHelper()
+    for q in queues:
+        try:
+            while q.qsize() > 0:
+                model = q.get(block = False)
+                db.save_to_db(model.title,model.mp4_url,model.config_url,model.watch,model.good)
+        except Exception as e:
+            logging.exceptione()
 
     print "All subprocesses done."
         
     
 
-def begin(rooturl,retries=3):
+def begin(rooturl,retries=3,httpclient=None):
+    if httpclient == None:
+        httpClient = http.YmlHttp()
     print 'process first page ... %s' % rooturl 
     r = httpClient.http_get(rooturl)    
     if r == None :
         if retries > 0:
-            begin(rooturl,retries-1)
+            begin(rooturl,retries-1,httpClient)
         else:
             print "process  %s with response none" % url
         return 
@@ -183,21 +195,22 @@ def begin(rooturl,retries=3):
     total = int(textwhite[len(textwhite)-1].string)-18
 
     th=[]
+    q = Queue.Queue()
+    db = sql.SqlHelper()
     for k in allA:
-        t = threading.Thread(target=process_web,args=(k,))
+        t = threading.Thread(target=process_web,args=(k,httpClient,q))
         t.setDaemon(True)
         t.start()
         th.append(t)
 
     for t in th:
         t.join()
-
-    global models
-
-    for model in models:
-            sql.save_to_db(model.title,model.mp4_url,model.config_url,model.watch,model.good)
-
-    models = []
+    try:
+        while q.qsize() > 0:
+            model = q.get(block = False)
+            db.save_to_db(model.title,model.mp4_url,model.config_url,model.watch,model.good)
+    except Exception as e:
+        logging.exceptione()
 
     dispatch_tasks(total)
 

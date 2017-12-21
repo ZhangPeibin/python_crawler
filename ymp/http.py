@@ -25,8 +25,9 @@ class YmlHttp(object):
     def __init__(self):
         self.HTTP_SESSION = requests.session()
         self.HTTP_SESSION.headers.update(headers)
-        self.retry = Retry(connect=3, backoff_factor=0.5)
-        self.adapter = HTTPAdapter(max_retries=self.retry)
+        self.retry = Retry(connect=3,
+                backoff_factor=0.5)
+        self.adapter = HTTPAdapter(max_retries=self.retry,pool_connections=200,pool_maxsize=300)
         self.HTTP_SESSION.mount('http://', self.adapter)
         self.HTTP_SESSION.mount('https://', self.adapter)
         self.proxies = {
@@ -156,13 +157,10 @@ class YmlHttp(object):
 
 
 def checkUrl(url):
-    print "check url %s" % url
     if len(url) == 0 :
         return False
 
     host,path = urlparse.urlparse(url)[1:3]
-    print host
-    print path
     conn = None
     try:
         conn = httplib.HTTPConnection(host)
@@ -171,11 +169,9 @@ def checkUrl(url):
         if  code in codes:
             return True
         else:
-            print "check url failed with %s" % (url)
             return False
     except Exception as e:
         logging.exception(e)
-        print "check url except % s" % url
         return False
     finally:
         if conn :
