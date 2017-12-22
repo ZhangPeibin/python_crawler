@@ -90,9 +90,10 @@ def process_web(ul,httpClient,queue):
 def formatUrl(page):
     return url % (videotype,page)
 
-def get_all_url(start,end,queue,hc=None,retries = 3):#递归爬取所有url 
+def get_all_url(start,end,queue,flag,hc=None,retries = 3):#递归爬取所有url 
     if start == end-1:
         print "finish job between %d to %d"%(start,end)
+        flag.pop()
         return
 
     if not hc:
@@ -108,11 +109,11 @@ def get_all_url(start,end,queue,hc=None,retries = 3):#递归爬取所有url
     
     if r == None :
         if retries > 0:
-            get_all_url(start,end,queue,hc,retries-1)
+            get_all_url(start,end,queue,flag,hc,retries-1)
         else:
             print "process  %s with response none" % url
             print '...'
-            get_all_url(start+1,end,queue,hc)
+            get_all_url(start+1,end,queue,flag,hc)
         return 
 
     r.encoding = 'utf-8'
@@ -122,7 +123,7 @@ def get_all_url(start,end,queue,hc=None,retries = 3):#递归爬取所有url
     
     if  (not allA):
             print "get a empty <a> tag from %s " % uri
-            get_all_url(start+1,end,hc,queue)
+            get_all_url(start+1,end,hc,queue,flag)
             return
         
     th=[]
@@ -135,41 +136,44 @@ def get_all_url(start,end,queue,hc=None,retries = 3):#递归爬取所有url
     for t in th:
         t.join()
 
-    get_all_url(start+1,end,queue,hc)
+    get_all_url(start+1,end,queue,flag,hc)
 
+
+def process_data(q,flag):
+    db = sql.SqlHelper()
+    while len(flag) > 0 :
+        if q.qsize() > 0:
+            model = q.get(block=True)
+            db.save_to_db(model.title,model.mp4_url,model.config_url,model.watch,model.good)
+    
+    while q.qsize() > 0:
+        model = q.get(block=True)
+        db.save_to_db(model.title,model.mp4_url,model.config_url,model.watch,model.good)
 
 def dispatch_tasks(total):
     if total <= 0:
         return
     totalPage = total/18
     perCount = totalPage/ processCount
-    
-    pool = Pool()
-    queues = []
     manager = multiprocessing.Manager()
+    pool = Pool()
+    q = manager.Queue()
+    flag = manager.list()
     for i in range(processCount):
         start = i * perCount+3
         if i == processCount-1:
             end = totalPage+1
         else:
             end = (i+1) * perCount+2
-        q = manager.Queue()
-        queues.append(q)
-        print "%s - %s " %(start,end)
-        #pool.apply_async(get_all_url,args=(start,end,q))
+        flag.append(i)
+        pool.apply_async(get_all_url,args=(start,end,q,flag))
 
+    t = threading.Thread(target=process_data,args=(q,flag))
+    t.setDaemon(True)
+    t.start()
     pool.close()
     pool.join()
     
-    db = sql.SqlHelper()
-    for q in queues:
-        try:
-            while q.qsize() > 0:
-                model = q.get(block = False)
-                db.save_to_db(model.title,model.mp4_url,model.config_url,model.watch,model.good)
-        except Exception as e:
-            logging.exceptione()
-
     print "All subprocesses done."
         
     
