@@ -34,25 +34,25 @@ class YmlHttp(object):
             "http":"http://118.193.107.37:80",
             }
 
-    def http_get(self,url, params={},retries=0):
+    def http_get(self, url, params={}, retries=0):
             try:
                 r = self.HTTP_SESSION.get(url, params=params)
                 if r.status_code == 200:
                     return r
                 else:
                     if str(r.status_code).startswith("5") and retries > 0:
-                        http_get(url,params,retries-1)
+                        self.http_get(url, params, retries-1)
                     else:
                         print "%s request failed %d " % (url,r.status_code)
                         return None
             except Exception as e:
                 if retries > 0:
-                        http_get(url,params,retries-1)
+                        self.http_get(url, params, retries-1)
                 else:
                     logging.exception(e)
                 return None
 
-    def http_download_process(self,title,mp4_url,config_url,retries=3):
+    def http_download_process(self, title, mp4_url, config_url, retries=3):
         if not os.path.exists('./mp4_yml'):
             os.mkdir("./mp4_yml")
 
@@ -70,31 +70,17 @@ class YmlHttp(object):
             os.remove("./mp4_yml/%s.mp4"%title)
             first_byte = 0
 
-        #header = {"Range": "bytes=%s-%s" % (first_byte, file_size)}
+        # header = {"Range": "bytes=%s-%s" % (first_byte, file_size)}
         
         pbar = tqdm(
             total=file_size, initial=first_byte,
             unit='B', unit_scale=True, desc=mp4_url.split('/')[-1])
-
         try:
             res = self.HTTP_SESSION.get(mp4_url,stream=True)
             #res = HTTP_SESSION.get(mp4_url,proxies=proxies,params=header,stream=True)
         except Exception as e:
             #may be can not access
             logging.exception(e)
-            if errorretries > 0:
-                try:
-                    conres = http_get(config_url)
-                    conres.coding='utf-8'
-                    if conres.status == 200:
-                        http_download(title,conres.text,config_url,retries,errorretries-1)
-                    else:
-                        print 'can not connect to %s' % path
-                except:
-                    logging.exception(e)
-                else:
-                    time.sleep(2)
-                    logging.exception(e)
         else:
             if res.status_code == 200:
                 with open('./mp4_yml/%s.mp4' % title,'wb') as f:
@@ -104,14 +90,13 @@ class YmlHttp(object):
                             pbar.update(1024)
             else:
                 if str(res.status_code).startswith("5") and retries > 0:
-                    http_download(row,retries-1)
+                    self.http_download(mp4_url, retries-1)
                 else:
                     print "response code : %d" % res.status_code
         finally:
             pbar.close()
 
     def http_download(self,title,mp4_url,config_url,retries=3,errorretries=1):
-            print path
             if not os.path.exists('./mp4_yml'):
                 os.mkdir("./mp4_yml")
 
