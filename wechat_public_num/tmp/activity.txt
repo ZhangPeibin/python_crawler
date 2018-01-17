@@ -1,0 +1,1 @@
+  mFocusedActivity: ActivityRecord{1b608b95 u0 com.tencent.mm/.plugin.webview.ui.tools.fts.FTSSearchTabWebViewUI t4}
