@@ -4,9 +4,9 @@ from __future__ import with_statement
 import sys
 import activity
 import os
-
 from com.android.monkeyrunner import MonkeyRunner as mr
 from com.android.monkeyrunner.recorder import MonkeyRecorder as recorder
+
 
 tmp = "tmp/"
 STATUS_SUFFIX = ".task.status"
@@ -31,7 +31,7 @@ if not device:
 
 print "connected ..."
 
-# recorder.start(device)
+recorder.start(device)
 
 drag_count = 0
 
@@ -57,31 +57,17 @@ def continue_drag():
         return True
     drag_count = drag_count + 1
 
-    status_f = open(tmp + wc_name + ".task.status", 'wb')
-    status = status_f.read()
-    f.close()
+    with open(tmp + wc_name + ".task.status", 'wb') as status_f:
+        status = status_f.read()
+
     return status == "1"
 
 
-def search_public_num(public_num_wechat_id):
-    # 清空输入文本
-    device.touch(668, 93, DOWN_AND_UP)
-    # 触摸输入框
-    device.touch(375, 90, DOWN_AND_UP)
-    device.type(public_num_wechat_id)
-    mr.sleep(1)
-    # 触摸搜索
-    device.touch(663, 1104, DOWN_AND_UP)
-    mr.sleep(5)
-    # 触摸搜索出的股票进详情
-    device.touch(346, 330, DOWN_AND_UP)
-    mr.sleep(1)
-
-    # coming details page
+def enter_history_message():
     # view history
-    mr.sleep(3)
-    device.touch(335, 834, DOWN_AND_UP)
-    mr.sleep(3)
+    # device.touch(335, 834, DOWN_AND_UP)
+    os.system("./uiauto.py")
+    mr.sleep(2)
 
     while continue_drag():
         device.drag((150, 410), (150, 110), 1, 10)
@@ -96,6 +82,21 @@ def search_public_num(public_num_wechat_id):
     mr.sleep(1)
     # 点击公众号聊天界面返回按钮
     device.touch(49, 96, DOWN_AND_UP)
+
+
+def search_public_num(public_num_wechat_id):
+    # 清空输入文本
+    device.touch(668, 93, DOWN_AND_UP)
+    # 触摸输入框
+    device.touch(375, 90, DOWN_AND_UP)
+    device.type(public_num_wechat_id)
+    mr.sleep(1)
+    # 触摸搜索
+    device.touch(663, 1104, DOWN_AND_UP)
+    mr.sleep(5)
+    # 触摸搜索出的股票进详情
+    device.touch(346, 330, DOWN_AND_UP)
+    mr.sleep(2)
 
 
 wc_home_name = "com.tencent.mm/com.tencent.mm.ui.LauncherUI"
@@ -118,6 +119,10 @@ elif current.count("BrandServiceIndexUI") != 0:
     device.touch(654, 104, DOWN_AND_UP)
     mr.sleep(2)
     search_public_num(wc_id)
+elif current.count("ContactInfoUI") != 0:
+    device = mr.waitForConnection()
+    mr.sleep(2)
+    enter_history_message()
 else:
     device = mr.waitForConnection()
     # 点击首页的通讯录页签
